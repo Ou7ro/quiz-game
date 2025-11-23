@@ -3,6 +3,7 @@ from environs import env
 import json
 import random
 import redis
+from enum import Enum
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -11,6 +12,7 @@ from telegram.ext import (
     MessageHandler,
     Filters,
     CallbackContext,
+    ConversationHandler,
 )
 
 logging.basicConfig(
@@ -22,6 +24,11 @@ logger = logging.getLogger(__name__)
 redis_client = None
 
 
+class BotState(Enum):
+    MENU = 0
+    WAITING_FOR_ANSWER = 1
+
+
 def get_random_question():
     with open("questions.json", "r", encoding="KOI8-R") as file:
         questions = json.load(file)
@@ -29,7 +36,7 @@ def get_random_question():
     return (question)
 
 
-def start(update: Update, context: CallbackContext) -> None:
+def start(update: Update, context: CallbackContext) -> int:
     """Send a message when the command /start is issued."""
     user_id = update.effective_user.id
     custom_keyboard = [['Новый вопрос', 'Сдаться'],
@@ -43,9 +50,10 @@ def start(update: Update, context: CallbackContext) -> None:
     )
 
     redis_client.set(f"user_{user_id}_score", 0)
+    return BotState.MENU.value
 
 
-def new_question(update: Update, context: CallbackContext) -> None:
+def handle_new_question_request(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
     question_data = get_random_question()
     question_text = question_data['question']
@@ -54,9 +62,10 @@ def new_question(update: Update, context: CallbackContext) -> None:
     redis_client.set(f"user_{user_id}_current_answer", question_data['answer'])
 
     update.message.reply_text(question_text)
+    return BotState.WAITING_FOR_ANSWER.value
 
 
-def handle_answer(update: Update, context: CallbackContext) -> None:
+def handle_solution_attempt(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
     user_answer = update.message.text.strip().lower().rstrip('.')
 
@@ -69,11 +78,13 @@ def handle_answer(update: Update, context: CallbackContext) -> None:
         new_score = int(current_score) + 1 if current_score else 1
         redis_client.set(f"user_{user_id}_score", new_score)
         update.message.reply_text('Правильно!')
+        return BotState.MENU.value
     else:
         update.message.reply_text('Неправильно. Попробуйте еще раз.')
+        return BotState.WAITING_FOR_ANSWER.value
 
 
-def surrender(update: Update, context: CallbackContext) -> None:
+def handle_surrender(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
 
     correct_answer = redis_client.get(f"user_{user_id}_current_answer")
@@ -82,8 +93,10 @@ def surrender(update: Update, context: CallbackContext) -> None:
     else:
         update.message.reply_text("Нет активного вопроса")
 
+    return BotState.MENU.value
 
-def show_score(update: Update, context: CallbackContext) -> None:
+
+def handle_show_score(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
 
     user_score = redis_client.get(f"user_{user_id}_score")
@@ -91,6 +104,12 @@ def show_score(update: Update, context: CallbackContext) -> None:
         user_score = 0
 
     update.message.reply_text(f"Ваш счет: {user_score}")
+    
+    current_question = redis_client.get(f"user_{user_id}_current_question")
+    if current_question:
+        return BotState.WAITING_FOR_ANSWER.value
+    else:
+        return BotState.MENU.value
 
 
 def main() -> None:
@@ -117,14 +136,23 @@ def main() -> None:
 
     dispatcher = updater.dispatcher
 
-    dispatcher.add_handler(CommandHandler("start", start))
+    conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', start)],
+            states={
+                BotState.MENU.value: [
+                    MessageHandler(Filters.regex('^Новый вопрос$'), handle_new_question_request),
+                    MessageHandler(Filters.regex('^Мой счет$'), handle_show_score),
+                ],
+                BotState.WAITING_FOR_ANSWER.value: [
+                    MessageHandler(Filters.regex('^Сдаться$'), handle_surrender),
+                    MessageHandler(Filters.regex('^Мой счет$'), handle_show_score),
+                    MessageHandler(Filters.text & ~Filters.command, handle_solution_attempt),
+                ],
+            },
+            fallbacks=[],
+        )
 
-    dispatcher.add_handler(MessageHandler(Filters.regex('^Новый вопрос$'), new_question))
-    dispatcher.add_handler(MessageHandler(Filters.regex('^Сдаться$'), surrender))
-    dispatcher.add_handler(MessageHandler(Filters.regex('^Мой счет$'), show_score))
-
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_answer))
-
+    dispatcher.add_handler(conv_handler)
     updater.start_polling()
     updater.idle()
 
