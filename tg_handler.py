@@ -104,7 +104,7 @@ def handle_show_score(update: Update, context: CallbackContext) -> int:
         user_score = 0
 
     update.message.reply_text(f"Ваш счет: {user_score}")
-    
+
     current_question = redis_client.get(f"user_{user_id}_current_question")
     if current_question:
         return BotState.WAITING_FOR_ANSWER.value
