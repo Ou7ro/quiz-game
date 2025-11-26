@@ -44,11 +44,11 @@ def start(user_id, vk_api):
 
 
 def handle_new_question_request(user_id, vk_api):
-    question_data = get_random_question()
-    question_text = question_data['question']
+    qa_pair = get_random_question()
+    question_text = qa_pair['question']
 
     redis_client.set(f"vk_user_{user_id}_current_question", question_text)
-    redis_client.set(f"vk_user_{user_id}_current_answer", question_data['answer'])
+    redis_client.set(f"vk_user_{user_id}_current_answer", qa_pair['answer'])
     redis_client.set(f"vk_user_{user_id}_state", BotState.WAITING_FOR_ANSWER)
 
     vk_api.messages.send(

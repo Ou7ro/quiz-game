@@ -43,11 +43,11 @@ def start(update: Update, context: CallbackContext) -> int:
 
 def handle_new_question_request(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
-    question_data = get_random_question()
-    question_text = question_data['question']
+    qa_pair = get_random_question()
+    question_text = qa_pair['question']
 
     redis_client.set(f"user_{user_id}_current_question", question_text)
-    redis_client.set(f"user_{user_id}_current_answer", question_data['answer'])
+    redis_client.set(f"user_{user_id}_current_answer", qa_pair['answer'])
 
     update.message.reply_text(question_text)
     return BotState.WAITING_FOR_ANSWER.value
