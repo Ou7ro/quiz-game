@@ -1,16 +1,12 @@
 from vk_api.longpoll import VkLongPoll, VkEventType
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
+from quiz_quiestions import get_random_question
 from environs import env
 import vk_api as vk
 import logging
 import random
-import json
 import redis
 
-
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
-)
 
 logger = logging.getLogger(__name__)
 
@@ -22,15 +18,7 @@ class BotState:
     WAITING_FOR_ANSWER = 1
 
 
-def get_random_question():
-    with open("questions.json", "r", encoding="KOI8-R") as file:
-        questions = json.load(file)
-        question = random.choice(questions)
-    return question
-
-
 def create_keyboard():
-    """Создает клавиатуру для VK similar to Telegram bot"""
     keyboard = VkKeyboard(one_time=False)
 
     keyboard.add_button('Новый вопрос', color=VkKeyboardColor.PRIMARY)
@@ -44,7 +32,6 @@ def create_keyboard():
 
 
 def start(user_id, vk_api):
-    """Инициализация пользователя при старте"""
     redis_client.set(f"vk_user_{user_id}_score", 0)
     redis_client.set(f"vk_user_{user_id}_state", BotState.MENU)
 
@@ -57,7 +44,6 @@ def start(user_id, vk_api):
 
 
 def handle_new_question_request(user_id, vk_api):
-    """Обработка запроса нового вопроса"""
     question_data = get_random_question()
     question_text = question_data['question']
 
@@ -74,7 +60,6 @@ def handle_new_question_request(user_id, vk_api):
 
 
 def handle_solution_attempt(user_id, user_answer, vk_api):
-    """Проверка ответа пользователя"""
     user_answer_clean = user_answer.strip().lower().rstrip('.')
 
     correct_answer = redis_client.get(f"vk_user_{user_id}_current_answer")
@@ -103,7 +88,6 @@ def handle_solution_attempt(user_id, user_answer, vk_api):
 
 
 def handle_surrender(user_id, vk_api):
-    """Пользователь сдается - показываем правильный ответ"""
     correct_answer = redis_client.get(f"vk_user_{user_id}_current_answer")
 
     if correct_answer:
@@ -123,7 +107,6 @@ def handle_surrender(user_id, vk_api):
 
 
 def handle_show_score(user_id, vk_api):
-    """Показываем счет пользователя"""
     user_score = redis_client.get(f"vk_user_{user_id}_score")
     if not user_score:
         user_score = 0
@@ -145,7 +128,6 @@ def handle_show_score(user_id, vk_api):
 
 
 def handle_message(event, vk_api):
-    """Обрабатывает входящие сообщения"""
     user_id = event.user_id
     user_message = event.text
 
@@ -177,7 +159,6 @@ def handle_message(event, vk_api):
 
 
 def run_vk_bot():
-    """Запускает VK бота"""
     global redis_client
 
     logger.info('Запуск VK бота')
@@ -215,4 +196,7 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+    )
     main()

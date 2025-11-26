@@ -1,9 +1,8 @@
 import logging
 from environs import env
-import json
-import random
 import redis
 from enum import Enum
+from quiz_quiestions import get_random_question
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -15,9 +14,6 @@ from telegram.ext import (
     ConversationHandler,
 )
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
-)
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +25,7 @@ class BotState(Enum):
     WAITING_FOR_ANSWER = 1
 
 
-def get_random_question():
-    with open("questions.json", "r", encoding="KOI8-R") as file:
-        questions = json.load(file)
-        question = random.choice(questions)
-    return (question)
-
-
 def start(update: Update, context: CallbackContext) -> int:
-    """Send a message when the command /start is issued."""
     user_id = update.effective_user.id
     custom_keyboard = [['Новый вопрос', 'Сдаться'],
                        ['Мой счет']]
@@ -113,16 +101,16 @@ def handle_show_score(update: Update, context: CallbackContext) -> int:
 
 
 def main() -> None:
-    """Start the bot."""
     global redis_client
     env.read_env()
     tg_bot_token = env.str('TG_BOT_TOKEN')
 
     redis_client = redis.Redis(
-        host='localhost',
-        port=6379,
-        db=0,
-        decode_responses=True
+        host=env.str('REDIS_HOST', 'localhost'),
+        port=env.int('REDIS_PORT', 6379),
+        db=env.int('REDIS_DB', 0),
+        decode_responses=True,
+        password=env.str('REDIS_PASSWOR', '')
     )
 
     try:
@@ -158,4 +146,8 @@ def main() -> None:
 
 
 if __name__ == '__main__':
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+    )
+
     main()
