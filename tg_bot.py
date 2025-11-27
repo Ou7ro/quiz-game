@@ -2,7 +2,7 @@ import logging
 from environs import env
 import redis
 from enum import Enum
-from quiz_quiestions import get_random_question
+from quiz_questions import get_random_question, load_questions
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -41,16 +41,25 @@ def start(update: Update, context: CallbackContext) -> int:
     return BotState.MENU.value
 
 
-def handle_new_question_request(update: Update, context: CallbackContext) -> int:
-    user_id = update.effective_user.id
+def prepare_new_question(user_id):
     qa_pair = get_random_question()
-    question_text = qa_pair['question']
-
-    redis_client.set(f"user_{user_id}_current_question", question_text)
+    redis_client.set(f"user_{user_id}_current_question", qa_pair['question'])
     redis_client.set(f"user_{user_id}_current_answer", qa_pair['answer'])
 
-    update.message.reply_text(question_text)
+
+def handle_new_question_request(update: Update, context: CallbackContext) -> int:
+    user_id = update.effective_user.id
+
+    current_question = redis_client.get(f"user_{user_id}_current_question")
+
+    update.message.reply_text(current_question)
     return BotState.WAITING_FOR_ANSWER.value
+
+
+def handle_new_question_wrapper(update: Update, context: CallbackContext) -> int:
+    user_id = update.effective_user.id
+    prepare_new_question(user_id)
+    return handle_new_question_request(update, context)
 
 
 def handle_solution_attempt(update: Update, context: CallbackContext) -> int:
@@ -100,25 +109,9 @@ def handle_show_score(update: Update, context: CallbackContext) -> int:
         return BotState.MENU.value
 
 
-def main() -> None:
-    global redis_client
-    env.read_env()
+def run_tg_bot():
+    logger.info('Запуск TG бота')
     tg_bot_token = env.str('TG_BOT_TOKEN')
-
-    redis_client = redis.Redis(
-        host=env.str('REDIS_HOST', 'localhost'),
-        port=env.int('REDIS_PORT', 6379),
-        db=env.int('REDIS_DB', 0),
-        decode_responses=True,
-        password=env.str('REDIS_PASSWOR', '')
-    )
-
-    try:
-        redis_client.ping()
-        logger.info("Redis подключен успешно")
-    except redis.ConnectionError:
-        logger.error("Ошибка подключения к Redis")
-        return
 
     updater = Updater(tg_bot_token)
 
@@ -128,7 +121,7 @@ def main() -> None:
             entry_points=[CommandHandler('start', start)],
             states={
                 BotState.MENU.value: [
-                    MessageHandler(Filters.regex('^Новый вопрос$'), handle_new_question_request),
+                    MessageHandler(Filters.regex('^Новый вопрос$'), handle_new_question_wrapper),
                     MessageHandler(Filters.regex('^Мой счет$'), handle_show_score),
                 ],
                 BotState.WAITING_FOR_ANSWER.value: [
@@ -145,9 +138,42 @@ def main() -> None:
     updater.idle()
 
 
-if __name__ == '__main__':
+def create_redis_connection():
+    global redis_client
+
+    redis_client = redis.Redis(
+        host=env.str('REDIS_HOST', 'localhost'),
+        port=env.int('REDIS_PORT', 6379),
+        db=env.int('REDIS_DB', 0),
+        decode_responses=True,
+        password=env.str('REDIS_PASSWOR', '')
+    )
+
+    try:
+        redis_client.ping()
+        logger.info("Redis подключен успешно для VK бота")
+        return True
+    except redis.ConnectionError:
+        logger.error("Ошибка подключения к Redis для VK бота")
+        redis_client = None
+        return False
+
+
+def main() -> None:
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
     )
+    env.read_env()
 
+    if not create_redis_connection():
+        return
+
+    if not load_questions():
+        logger.error("Не удалось загрузить вопросы")
+        return
+
+    run_tg_bot()
+
+
+if __name__ == '__main__':
     main()
