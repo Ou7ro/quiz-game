@@ -151,10 +151,10 @@ def create_redis_connection():
 
     try:
         redis_client.ping()
-        logger.info("Redis подключен успешно для VK бота")
+        logger.info("Redis подключен успешно для TG бота")
         return True
     except redis.ConnectionError:
-        logger.error("Ошибка подключения к Redis для VK бота")
+        logger.error("Ошибка подключения к Redis для TG бота")
         redis_client = None
         return False
 

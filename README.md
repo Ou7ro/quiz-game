@@ -26,6 +26,7 @@ pip install -r requirements.txt
 ```
 TG_BOT_TOKEN=ваш_токен_telegram_бота
 VK_BOT_TOKEN=ваш_токен_vk_бота
+QUESTION_PATH=Путь до файла с вопросами -- Необязательный, значение по умолчанию `questions.json`
 REDIS_HOST=localhost -- Необязательный, значение по умолчанию `localhost`
 REDIS_PORT=6379 -- Необязательный, значение по умолчанию `6379`
 REDIS_DB=0 -- Необязательный, значение по умолчанию `0`
