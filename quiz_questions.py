@@ -1,15 +1,11 @@
 import json
 import random
 import logging
-from environs import env
-
 
 logger = logging.getLogger(__name__)
 
 
-def load_questions():
-    env.read_env()
-    questions_path = env.str('QUESTION_PATH', 'questions.json')
+def load_questions(questions_path):
     try:
         with open(questions_path, "r", encoding="KOI8-R") as file:
             questions = json.load(file)

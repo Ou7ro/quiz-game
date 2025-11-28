@@ -10,9 +10,6 @@ import redis
 
 logger = logging.getLogger(__name__)
 
-redis_client = None
-questions = []
-
 
 class BotState:
     MENU = 0
@@ -32,7 +29,7 @@ def create_keyboard():
     return keyboard.get_keyboard()
 
 
-def start(user_id, vk_api):
+def start(user_id, vk_api, redis_client):
     redis_client.set(f"vk_user_{user_id}_score", 0)
     redis_client.set(f"vk_user_{user_id}_state", BotState.MENU)
 
@@ -44,7 +41,7 @@ def start(user_id, vk_api):
     )
 
 
-def handle_new_question_request(user_id, vk_api):
+def handle_new_question_request(user_id, vk_api, redis_client):
     current_question = redis_client.get(f"vk_user_{user_id}_current_question")
     redis_client.set(f"vk_user_{user_id}_state", BotState.WAITING_FOR_ANSWER)
 
@@ -56,13 +53,13 @@ def handle_new_question_request(user_id, vk_api):
     )
 
 
-def prepare_new_question(user_id):
+def prepare_new_question(user_id, redis_client, questions):
     qa_pair = get_random_question(questions)
     redis_client.set(f"vk_user_{user_id}_current_question", qa_pair['question'])
     redis_client.set(f"vk_user_{user_id}_current_answer", qa_pair['answer'])
 
 
-def handle_solution_attempt(user_id, user_answer, vk_api):
+def handle_solution_attempt(user_id, user_answer, vk_api, redis_client):
     user_answer_clean = user_answer.strip().lower().rstrip('.')
 
     correct_answer = redis_client.get(f"vk_user_{user_id}_current_answer")
@@ -90,7 +87,7 @@ def handle_solution_attempt(user_id, user_answer, vk_api):
         )
 
 
-def handle_surrender(user_id, vk_api):
+def handle_surrender(user_id, vk_api, redis_client, questions):
     correct_answer = redis_client.get(f"vk_user_{user_id}_current_answer")
 
     if correct_answer:
@@ -106,11 +103,11 @@ def handle_surrender(user_id, vk_api):
         keyboard=create_keyboard(),
         random_id=random.randint(1, 1000)
     )
-    prepare_new_question(user_id)
-    handle_new_question_request(user_id, vk_api)
+    prepare_new_question(user_id, redis_client, questions)
+    handle_new_question_request(user_id, vk_api, redis_client)
 
 
-def handle_show_score(user_id, vk_api):
+def handle_show_score(user_id, vk_api, redis_client):
     user_score = redis_client.get(f"vk_user_{user_id}_score")
     if not user_score:
         user_score = 0
@@ -131,28 +128,28 @@ def handle_show_score(user_id, vk_api):
     )
 
 
-def handle_message(event, vk_api):
+def handle_message(event, vk_api, redis_client, questions):
     user_id = event.user_id
     user_message = event.text
 
     current_state = redis_client.get(f"vk_user_{user_id}_state")
 
     if current_state is None:
-        start(user_id, vk_api)
+        start(user_id, vk_api, redis_client)
         return
 
     if user_message == 'Новый вопрос':
-        prepare_new_question(user_id)
-        handle_new_question_request(user_id, vk_api)
+        prepare_new_question(user_id, redis_client, questions)
+        handle_new_question_request(user_id, vk_api, redis_client)
 
     elif user_message == 'Сдаться':
-        handle_surrender(user_id, vk_api)
+        handle_surrender(user_id, vk_api, redis_client, questions)
 
     elif user_message == 'Мой счет':
-        handle_show_score(user_id, vk_api)
+        handle_show_score(user_id, vk_api, redis_client)
 
     elif current_state == str(BotState.WAITING_FOR_ANSWER):
-        handle_solution_attempt(user_id, user_message, vk_api)
+        handle_solution_attempt(user_id, user_message, vk_api, redis_client)
 
     else:
         vk_api.messages.send(
@@ -163,7 +160,7 @@ def handle_message(event, vk_api):
         )
 
 
-def run_vk_bot():
+def run_vk_bot(redis_client, questions):
     logger.info('Запуск VK бота')
     vk_token = env.str('VK_BOT_TOKEN')
 
@@ -174,15 +171,13 @@ def run_vk_bot():
     try:
         for event in longpoll.listen():
             if event.type == VkEventType.MESSAGE_NEW and event.to_me:
-                handle_message(event, vk_api)
+                handle_message(event, vk_api, redis_client, questions)
     except Exception as e:
         logger.error(f'VK bot error: {e}')
 
 
 def create_redis_connection():
-    global redis_client
-
-    redis_client = redis.Redis(
+    return redis.Redis(
         host=env.str('REDIS_HOST', 'localhost'),
         port=env.int('REDIS_PORT', 6379),
         db=env.int('REDIS_DB', 0),
@@ -190,32 +185,28 @@ def create_redis_connection():
         password=env.str('REDIS_PASSWORD', '')
     )
 
-    try:
-        redis_client.ping()
-        logger.info("Redis подключен успешно для VK бота")
-        return True
-    except redis.ConnectionError:
-        logger.error("Ошибка подключения к Redis для VK бота")
-        redis_client = None
-        return False
-
 
 def main():
-    global questions
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
     )
     env.read_env()
 
-    if not create_redis_connection():
+    redis_client = create_redis_connection()
+    try:
+        redis_client.ping()
+        logger.info("Redis подключен успешно для VK бота")
+    except redis.ConnectionError:
+        logger.error("Ошибка подключения к Redis для VK бота")
         return
 
-    questions = load_questions()
+    questions_path = env.str('QUESTION_PATH', 'questions.json')
+    questions = load_questions(questions_path)
     if not questions:
         logger.error("Не удалось загрузить вопросы")
         return
 
-    run_vk_bot()
+    run_vk_bot(redis_client, questions)
 
 
 if __name__ == "__main__":
