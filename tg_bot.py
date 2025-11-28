@@ -18,6 +18,7 @@ from telegram.ext import (
 logger = logging.getLogger(__name__)
 
 redis_client = None
+questions = []
 
 
 class BotState(Enum):
@@ -42,16 +43,14 @@ def start(update: Update, context: CallbackContext) -> int:
 
 
 def prepare_new_question(user_id):
-    qa_pair = get_random_question()
+    qa_pair = get_random_question(questions)
     redis_client.set(f"user_{user_id}_current_question", qa_pair['question'])
     redis_client.set(f"user_{user_id}_current_answer", qa_pair['answer'])
 
 
 def handle_new_question_request(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
-
     current_question = redis_client.get(f"user_{user_id}_current_question")
-
     update.message.reply_text(current_question)
     return BotState.WAITING_FOR_ANSWER.value
 
@@ -146,7 +145,7 @@ def create_redis_connection():
         port=env.int('REDIS_PORT', 6379),
         db=env.int('REDIS_DB', 0),
         decode_responses=True,
-        password=env.str('REDIS_PASSWOR', '')
+        password=env.str('REDIS_PASSWORD', '')
     )
 
     try:
@@ -160,6 +159,7 @@ def create_redis_connection():
 
 
 def main() -> None:
+    global questions
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
     )
@@ -168,7 +168,8 @@ def main() -> None:
     if not create_redis_connection():
         return
 
-    if not load_questions():
+    questions = load_questions()
+    if not questions:
         logger.error("Не удалось загрузить вопросы")
         return
 

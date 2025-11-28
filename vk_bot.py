@@ -11,6 +11,7 @@ import redis
 logger = logging.getLogger(__name__)
 
 redis_client = None
+questions = []
 
 
 class BotState:
@@ -56,7 +57,7 @@ def handle_new_question_request(user_id, vk_api):
 
 
 def prepare_new_question(user_id):
-    qa_pair = get_random_question()
+    qa_pair = get_random_question(questions)
     redis_client.set(f"vk_user_{user_id}_current_question", qa_pair['question'])
     redis_client.set(f"vk_user_{user_id}_current_answer", qa_pair['answer'])
 
@@ -186,7 +187,7 @@ def create_redis_connection():
         port=env.int('REDIS_PORT', 6379),
         db=env.int('REDIS_DB', 0),
         decode_responses=True,
-        password=env.str('REDIS_PASSWOR', '')
+        password=env.str('REDIS_PASSWORD', '')
     )
 
     try:
@@ -200,6 +201,7 @@ def create_redis_connection():
 
 
 def main():
+    global questions
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
     )
@@ -208,7 +210,8 @@ def main():
     if not create_redis_connection():
         return
 
-    if not load_questions():
+    questions = load_questions()
+    if not questions:
         logger.error("Не удалось загрузить вопросы")
         return
 
